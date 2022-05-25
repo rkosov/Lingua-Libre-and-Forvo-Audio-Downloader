@@ -222,36 +222,36 @@ def save_audio(audio, filename):
         pass
 
 
-def sort_results(results):
-    # Remove the unwanted users from the list of results
-    sorted_results = {k: v for k, v in results.items() if k not in exclude_users}
+def sort_results(results, exclude_field, sort_field):
+    # Remove the unwanted entries from the list of results
+    sorted_results = {k: v for k, v in results.items() if k not in exclude_field}
 
-    # sort the results according to the preferred user setting
-    index_map = {v: i for i, v in enumerate(prefer_users)}
+    # sort the results according to the sort_field
+    index_map = {v: i for i, v in enumerate(sort_field)}
     sorted_results = sorted(sorted_results.items(), key=lambda pair: index_map[pair[0]]
-                                if pair[0] in prefer_users else 999)
+                                if pair[0] in sort_field else 999)
 
     return sorted_results
 
 
 # Used to get the results from Forvo, can be used as either a batch or stand alone
-def get_forvo_results(term):
+def get_forvo_results(terms):
     global error_number, error_strings
     filenames = []
 
-    for i in range(len(term)):
+    for index, term in enumerate(terms):
         audio_files = []
         filename = ""
         results = dict()
 
         # This constructs the url to retry and replaces ? with %253F as Forvo does.
-        url = "https://forvo.com/word/" + term[i].replace("?", "%253F")
+        url = "https://forvo.com/word/" + term.replace("?", "%253F")
         scraper = cfscrape.CloudflareScraper()
         try:
             html = scraper.get(url).text
         except:
             error_number = error_number + 1
-            error_strings.append(f"Connection Error: {term[i]}")
+            error_strings.append(f"{term}")
             continue
 
         if accent:
@@ -269,7 +269,7 @@ def get_forvo_results(term):
                 r'onclick=\"Play\([^,]+,\'([^\']+).*?Pronunciation by\s*?(?:<span class=\"ofLink\"[^>]*?>([^<]+?)</span>|(\b\w+\b))',
                 match.groups()[0], re.DOTALL | re.MULTILINE)
         elif not batch:
-            showInfo(f"No pronunciation found for {term[i]}.")
+            showInfo(f"No pronunciation found for {term}.")
             continue
         else:
             continue
@@ -283,7 +283,7 @@ def get_forvo_results(term):
             results[user].append(a)
 
         # Now remove the unwanted users and reorder the results based on preferred users
-        results = sort_results(results)
+        results = sort_results(results, exclude_users, prefer_users)
         speakers = list()
 
         if not results:
@@ -308,7 +308,7 @@ def get_forvo_results(term):
                     continue
                 else:
                     error_number = error_number + 1
-                    error_strings.append(f"No Audio: {term[i]}")
+                    error_strings.append(f"{term}")
                     continue
             if player_result.headers['Content-Disposition']:
                 mp3 = player_result.headers['Content-Disposition'] \
@@ -317,12 +317,12 @@ def get_forvo_results(term):
                     audio = scraper.get(mp3)
                 except:
                     error_number = error_number + 1
-                    error_strings.append(f"Connection Error: {term[i]}")
+                    error_strings.append(f"{term}")
                     continue
 
                 speakers.append(results[k][0])
                 # Set the filename and save the audio to the disk
-                filename = set_audio_string(results[k][0], term[i])
+                filename = set_audio_string(results[k][0], term)
                 term_filenames.append(filename)
                 audio_files.append(save_audio(audio, filename))
                 save_audio(audio, filename)
@@ -444,7 +444,7 @@ def on_success(count: tuple) -> None:
     if error_number != 0:
         label = "\n".join(error_strings)
         showInfo(f"Errors occurred with the following terms: {label}\n"
-                 f" If this continue to occur, please check the terms on Forvo.")
+                 f" Please run again. If this continues to occur, please check the terms on Forvo.")
 
 
 def batch_download() -> None:
@@ -508,7 +508,6 @@ action = QAction("Download Audio", mw)
 # set it to call testFunction when it's clicked
 qconnect(action.triggered, batch_download)
 # and add it to the tools menu
-
 mw.form.menuTools.addAction(action)
 
 gui_hooks.editor_did_init_buttons.append(add_audio_button)
