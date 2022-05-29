@@ -412,12 +412,15 @@ def get_ll_results(terms):
                 speakers.extend([f"Forvo: {x}" for x in forvo_results[1]])
                 term_filenames.extend(forvo_results[2])
 
-            sound_dialog = SoundDialog(mw, audio_file_paths, speakers)
-            res = sound_dialog.wait_for_result()
-            if res == QDialog.Accepted:
-                index = sound_dialog.selected
-                filenames.append(term_filenames[index])
-                mw.col.media.addFile(audio_file_paths[index])
+            if speakers:
+                sound_dialog = SoundDialog(mw, audio_file_paths, speakers)
+                res = sound_dialog.wait_for_result()
+                if res == QDialog.Accepted:
+                    index = sound_dialog.selected
+                    filenames.append(term_filenames[index])
+                    mw.col.media.addFile(audio_file_paths[index])
+            else:
+                showInfo(f"No pronunciation found for {term}.")
 
     return filenames
 
