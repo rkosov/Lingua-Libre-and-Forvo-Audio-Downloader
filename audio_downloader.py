@@ -383,6 +383,7 @@ def get_ll_results(terms):
             term_filenames = []
             term_filename = ""
             audio_file_paths = []
+            speakers = []
             total = len(speaker)
             for speaker in available_speakers:
                 '''mw.taskman.run_on_main(
@@ -403,13 +404,15 @@ def get_ll_results(terms):
                 audio_file_path = save_audio(audio, term_filename)
                 audio_file_paths.append(audio_file_path)
 
+            speakers = [f"Lingua Libre: {x}" for x in available_speakers]
+
             if not disable_forvo:
                 forvo_results = get_forvo_results([term])
                 audio_file_paths.extend(forvo_results[0])
-                available_speakers.extend(forvo_results[1])
+                speakers.extend([f"Forvo: {x}" for x in forvo_results[1]])
                 term_filenames.extend(forvo_results[2])
 
-            sound_dialog = SoundDialog(mw, audio_file_paths, available_speakers)
+            sound_dialog = SoundDialog(mw, audio_file_paths, speakers)
             res = sound_dialog.wait_for_result()
             if res == QDialog.Accepted:
                 index = sound_dialog.selected
