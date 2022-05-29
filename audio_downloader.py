@@ -38,8 +38,8 @@ audio_field = str()
 language = list()
 accent = str()
 field_names = dict()
-prefer_users = frozenset()
-exclude_users = frozenset()
+prefer_speakers = frozenset()
+exclude_speakers = frozenset()
 add_tag = str()
 error_number = 0
 error_strings = []
@@ -126,14 +126,14 @@ def get_config_note():
 def process_config(config):
     global note_type, field_names, language
     global separator, prefixes, suffixes, find_and_replace
-    global accent, prefer_users, exclude_users, tag_missing, deck_name, add_tag, recheck_tag
+    global accent, prefer_speakers, exclude_speakers, tag_missing, deck_name, add_tag, recheck_tag
     global restrict_to_country, prefer_locations, max_date, disable_forvo, disable_Lingua_Libre
     config_fields = []
 
     # reset all config variables
     separator = prefixes = suffixes = tag_missing = note_type = deck_name = language = accent = add_tag = str()
     find_and_replace = field_names = dict()
-    prefer_users = exclude_users = list()
+    prefer_speakers = exclude_speakers = list()
     recheck_tag = ""
 
     keys = [*config]
@@ -166,10 +166,10 @@ def process_config(config):
         deck_name = config['deck']
     if "accent" in keys:
         accent = config['accent']
-    if "prefer_users" in keys:
-        prefer_users = config['prefer_users']
-    if "exclude_users" in keys:
-        exclude_users = config['exclude_users']
+    if "prefer_speakers" in keys:
+        prefer_speakers = config['prefer_speakers']
+    if "exclude_speakers" in keys:
+        exclude_speakers = config['exclude_speakers']
     if "tag_missing" in keys:
         tag_missing = config['tag_missing']
     if "add_tag" in keys:
@@ -326,7 +326,7 @@ def get_ll_results(terms):
 
                 # Filters the results based on the user's criteria
                 if (country in restrict_to_country or restrict_to_country == []) \
-                        and speaker not in exclude_users\
+                        and speaker not in exclude_speakers\
                         and language[1] == results[speaker]['language']:
                     entry[speaker] = {"term": term, "speaker": speaker, "filename": results[speaker]['file'],
                                       "city": locations[place]['city'], "country": country,
@@ -344,7 +344,7 @@ def get_ll_results(terms):
             if entry and batch:
 
                 # Checking if the results contain a pronunciation by a preferred speaker
-                intersection = [x for x in prefer_users if x in available_speakers]
+                intersection = [x for x in prefer_speakers if x in available_speakers]
                 if intersection:
                     speaker = intersection[0]
                 # If not, check for a user's preferred places
@@ -601,7 +601,7 @@ def get_forvo_results(terms):
             results[user].append(a)
 
         # Now remove the unwanted users and reorder the results based on preferred users
-        results = sort_results(results, exclude_users, prefer_users)
+        results = sort_results(results, exclude_speakers, prefer_speakers)
         speakers = list()
 
         if not results:
