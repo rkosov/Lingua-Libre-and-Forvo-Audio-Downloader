@@ -1,7 +1,7 @@
 # (c) 2022 Rodion Kosovsky released under the GPL v3
 
 from aqt import mw, gui_hooks
-from aqt.utils import showInfo, qconnect
+from aqt.utils import showInfo
 from anki.collection import Collection
 from aqt.operations import QueryOp
 from aqt.qt import *
@@ -10,6 +10,13 @@ from .selector import SelectDialog
 from .dialog import SoundDialog
 import unicodedata
 import re
+
+#Lingua Libre Specific
+import sparql
+import requests
+import datetime
+import json
+import random
 
 # Used to save the audio
 import os
@@ -28,16 +35,61 @@ text_field = str()
 note_type = str()
 deck_name = str()
 audio_field = str()
-language = str()
+language = list()
 accent = str()
 field_names = dict()
-prefer_users = list()
-exclude_users = list()
+prefer_users = frozenset()
+exclude_users = frozenset()
 add_tag = str()
 error_number = 0
 error_strings = []
 batch = bool
 recheck_tag = str()
+restrict_to_country = list()
+prefer_locations = frozenset()
+
+
+#Lingua Libre specific
+# Header to use to download from Wiki Commons.
+headers = {'User-Agent': 'Lingua Libre Anki Addon'}
+database_file = str()
+max_date = 1
+ll_database = dict()
+ll_database_json = os.path.join(os.path.dirname(__file__), "LinguaLibre.json")
+locations = dict()
+ll_locations_json = os.path.join(os.path.dirname(__file__), "Locations.json")
+disable_Lingua_Libre = False
+disable_forvo = False
+
+# Query for Lingua Libre
+ENDPOINT = "https://lingualibre.org/bigdata/namespace/wdq/sparql"
+API = "https://lingualibre.org/api.php"
+BASEQUERY = """
+SELECT DISTINCT
+    ?record ?file ?transcription ?recorded
+    ?languageIso ?languageQid ?languageWMCode
+    ?residence ?learningPlace ?languageLevel
+    ?speaker ?linkeduser
+WHERE {
+  ?record prop:P2 entity:Q2 .
+  ?record prop:P3 ?file .
+  ?record prop:P4 ?language .
+  ?record prop:P5 ?speaker .
+  ?record prop:P6 ?recorded .
+  ?record prop:P7 ?transcription .
+  ?language prop:P13 ?languageIso.
+  ?speakerLanguagesStatement llq:P16 ?languageLevel .
+  ?speaker prop:P11 ?linkeduser .
+  ?speaker prop:P14 ?residence .
+  ?speaker llp:P4 ?speakerLanguagesStatement .
+  ?speakerLanguagesStatement llv:P4 ?speakerLanguages .
+  OPTIONAL { ?speakerLanguagesStatement llq:P16 ?languageLevel . }
+  FILTER( ?speakerLanguages = ?language) .
+  SERVICE wikibase:label {
+    bd:serviceParam wikibase:language "en" .
+  }
+  #filters
+}"""
 
 
 # Read the setting for the chosen configuration and make them global
@@ -75,6 +127,7 @@ def process_config(config):
     global note_type, field_names, language
     global separator, prefixes, suffixes, find_and_replace
     global accent, prefer_users, exclude_users, tag_missing, deck_name, add_tag, recheck_tag
+    global restrict_to_country, prefer_locations, max_date, disable_forvo, disable_Lingua_Libre
     config_fields = []
 
     # reset all config variables
@@ -83,7 +136,7 @@ def process_config(config):
     prefer_users = exclude_users = list()
     recheck_tag = ""
 
-    keys = config.keys()
+    keys = [*config]
 
     # These are required
     if "note type" and "language" and "fields" in keys:
@@ -123,6 +176,16 @@ def process_config(config):
         add_tag = config['add_tag']
     if "recheck_tag" in keys:
         recheck_tag = config['recheck_tag']
+    if "restrict_to_country" in keys:
+        restrict_to_country = config['restrict_to_country']
+    if "prefer_locations" in keys:
+        prefer_locations = config['prefer_locations']
+    if "max_date" in keys:
+        max_date = config['max_date']
+    if "disable_forvo" in keys:
+        disable_forvo = config['disable_forvo']
+    if "disable_Lingua_Libre" in keys:
+        disable_Lingua_Libre = config['disable_Lingua_Libre']
 
     # check to make sure that the provided field names are valid
     for k, v in field_names.items():
@@ -185,14 +248,261 @@ def slugify(value):
     return re.sub(r'[-\s]+', '-', value).strip('-_')
 
 
+def fetch_ll_database():
+    global ll_database
+
+    raw_records = sparql.request(ENDPOINT, BASEQUERY.replace("#filters", ""))
+    for record in raw_records:
+        current_term = sparql.format_value(record, "transcription")
+        speaker = sparql.format_value(record, "linkeduser")
+        #print(current_term)
+        if sparql.format_value(record, "languageLevel") != "Q15":
+            continue
+
+        if current_term not in ll_database:
+            ll_database[current_term] = {}
+        ll_database[current_term][speaker] = {"file": sparql.format_value(record, "file"),
+                                              "language": sparql.format_value(record, "languageIso"),
+                                              "recorded": sparql.format_value(record, "recorded"),
+                                              "residence": sparql.format_value(record, "residence")}
+
+    with open(ll_database_json, 'w') as outfile:
+        json.dump(ll_database, outfile, indent=4)
+
+
+def load_ll_database():
+    global ll_database, locations
+
+    try:
+        today = datetime.datetime.today()
+        modified_date = datetime.datetime.fromtimestamp(os.path.getmtime(ll_database_json))
+        duration = today - modified_date
+        if bool(ll_database):
+            return
+        elif duration.days < max_date:
+            try:
+                with open(ll_database_json, 'r') as f:
+                    ll_database = json.load(f)
+            except FileNotFoundError:
+                fetch_ll_database()
+            try:
+                with open(ll_locations_json, 'r') as f:
+                    locations = json.load(f)
+            except FileNotFoundError:
+                return
+        else:
+            fetch_ll_database()
+            try:
+                with open(ll_locations_json, 'r') as f:
+                    locations = json.load(f)
+            except FileNotFoundError:
+                return
+    except FileNotFoundError:
+        fetch_ll_database()
+
+
+def get_ll_results(terms):
+    global error_number, error_strings
+    filenames = []
+
+    for index, term in enumerate(terms):
+        filename = ""
+        speaker = ""
+        selection = ""
+        entry = dict()
+        results = ll_database.get(term)
+        available_speakers = []
+        # Only continue if there are pronunciations for the given term
+        if results:
+
+            # Create a reduced dictionary of acceptable pronunciations of the term
+            for si, speaker in enumerate(results):
+
+                # Gets the city, country corresponding to the Wikidata item
+                place = results[speaker]['residence']
+                if place not in locations:
+                    get_location_labels(place)
+                country = locations[place]['country']
+
+                # Filters the results based on the user's criteria
+                if (country in restrict_to_country or restrict_to_country == []) \
+                        and speaker not in exclude_users\
+                        and language[1] == results[speaker]['language']:
+                    entry[speaker] = {"term": term, "speaker": speaker, "filename": results[speaker]['file'],
+                                      "city": locations[place]['city'], "country": country,
+                                      "language": results[speaker]['language']}
+                    available_speakers.append(speaker)
+            '''
+            Handles what to do with the acceptable pronunciations
+            1) If its a batch operation and LL has acceptable pronunciations. 
+                a) First check to see if there are pronunciations by the user's preferred speakers
+                b) Then check if there are pronunciations in the user's preferred places
+                c) Otherwise grab a random pronunciation
+            2) If its to a batch operation, then we'll need to ask the user to select one.
+            3) If Lingua Libre does not have acceptable pronunciations, check Forvo and continue to the next term.
+            '''
+            if entry and batch:
+
+                # Checking if the results contain a pronunciation by a preferred speaker
+                intersection = [x for x in prefer_users if x in available_speakers]
+                if intersection:
+                    speaker = intersection[0]
+                # If not, check for a user's preferred places
+                else:
+                    places = [val['city'] for key, val in entry.items() if 'city' in val]
+
+                    intersection = [x for x in prefer_locations if x in places]
+
+                    if intersection:
+                        available_pronunciations = [key for key, val in entry.items() if val['city'] == intersection[0]]
+                        speaker = random.choice(available_pronunciations )
+                    # Otherwise, select a random pronunciation
+                    else:
+                        speaker = random.choice(available_speakers)
+
+                selection = entry[speaker]
+                filename = set_ll_audio_string(selection)
+                audio = download_ll_audio(selection["filename"])
+                if not audio:
+                    error_number = error_number + 1
+                    error_strings.append(f"LL: {term}")
+                    continue
+
+                save_audio(audio, filename)
+                filenames.append(filename)
+
+            elif not disable_forvo and batch:
+                forvo = get_forvo_results([term])
+                filenames.extend(forvo)
+
+        elif not disable_forvo and batch:
+            forvo = get_forvo_results([term])
+            filenames.extend(forvo)
+
+        if not batch:
+            term_filenames = []
+            term_filename = ""
+            audio_file_paths = []
+            total = len(speaker)
+            for speaker in available_speakers:
+                '''mw.taskman.run_on_main(
+                    lambda: mw.progress.update(
+                        label=f"Fetching pronunciation by {speaker}",
+                        value=i,
+                        max=total,
+                    ))]'''
+                selection = entry[speaker]
+                term_filename = set_ll_audio_string(selection)
+                term_filenames.append(term_filename)
+                audio = download_ll_audio(selection["filename"])
+                if not audio:
+                    error_number = error_number + 1
+                    error_strings.append(f"LL: {term}")
+                    continue
+
+                audio_file_path = save_audio(audio, term_filename)
+                audio_file_paths.append(audio_file_path)
+
+            if not disable_forvo:
+                forvo_results = get_forvo_results([term])
+                audio_file_paths.extend(forvo_results[0])
+                available_speakers.extend(forvo_results[1])
+                term_filenames.extend(forvo_results[2])
+
+            sound_dialog = SoundDialog(mw, audio_file_paths, available_speakers)
+            res = sound_dialog.wait_for_result()
+            if res == QDialog.Accepted:
+                index = sound_dialog.selected
+                filenames.append(term_filenames[index])
+                mw.col.media.addFile(audio_file_paths[index])
+
+    return filenames
+
+
+def get_location_labels(qid):
+    global locations
+    url = 'https://query.wikidata.org/sparql'
+    query = f'''
+            SELECT DISTINCT ?city ?country ?countryLabel  WHERE {{
+            wd:{qid} rdfs:label ?city.
+            wd:{qid} wdt:P17 ?country.
+            SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en". }}
+            FILTER (LANG(?city) = "en")
+            }}
+                '''
+    r = requests.get(url, headers=headers, params={'format': 'json', 'query': query})
+    try:
+        data = r.json()
+    except:
+        get_location_labels(qid)
+
+    try:
+        city = data['results']['bindings'][0]['city']['value']
+        country = data['results']['bindings'][0]['countryLabel']['value']
+        if city == country:
+            locations[qid] = {"city": "", "country": country}
+        else:
+            locations[qid] = {"city": city, "country": country}
+    except IndexError:
+        locations[qid] = {"city": "", "country": ""}
+
+
 # sets the audio string used in the file name and audio field
-def set_audio_string(speaker, audio):
-    if accent:
-        audio_string = slugify(f"{language}_{accent}_{speaker}_{audio}") + ".mp3"
+def set_ll_audio_string(entry):
+
+    city = entry['city']
+    country = entry['country']
+
+    #Creates the code for the place
+    if city and country:
+        place = f"{city}, {country}_"
+    elif country:
+        place = f"{country}_"
     else:
-        audio_string = slugify(f"{language}_{speaker}_{audio}") + ".mp3"
+        place = ""
+
+    audio_string = slugify(f"Lingua Libre_{entry['language']}_{entry['speaker']}_{place}{entry['term']}") + ".mp3"
 
     return audio_string
+
+
+def download_ll_audio(filename):
+
+    # In the url replace ? with %3F as Commons does.
+    url = f"https://commons.wikimedia.org/wiki/File:{filename.replace('?', '%3F')}"
+
+
+    # Download the HTML for the file
+    content = requests.get(url, headers=headers).text
+
+    '''
+    Find the download link to the file in the HTML using a regex.
+    If the file is not transcoded, then it has the same location in the html. 
+    Otherwise, the specific transcoding requires finding.
+    '''
+    if filename.endswith("wav"):
+        mp3_url = re.search(
+            r'<source src="(https://upload.wikimedia.org/[\w.,@?^=%&:\/~+#-]*[\w@?^=%&\/~+#-])" '
+            r'type="audio/mpeg" data-title="MP3" data-shorttitle="MP3" data-transcodekey="mp3"'
+            r' data-width="0" data-height="0" data-bandwidth="\d*"/>', content)
+        if mp3_url:
+            download_url = mp3_url.groups()[0]
+    else:
+        common_url = re.search(
+            r'<div class="fullMedia"><p><a href="(https://upload.wikimedia.org/[\w.,@?^=%&:\/~+#-]*[\w@?^=%&\/~+#-])"',
+            content)
+        if common_url:
+            download_url = common_url.groups()[0]
+        else:
+            return False
+
+    # Fetch the audio file from Common
+    try:
+        audio = requests.get(download_url, headers=headers)
+    except:
+        return False
+
+    return audio
 
 
 # Creates the text string for the audio field
@@ -240,7 +550,7 @@ def get_forvo_results(terms):
     filenames = []
 
     for index, term in enumerate(terms):
-        audio_files = []
+        audio_file_paths = []
         filename = ""
         results = dict()
 
@@ -251,23 +561,25 @@ def get_forvo_results(terms):
             html = scraper.get(url).text
         except:
             error_number = error_number + 1
-            error_strings.append(f"{term}")
+            error_strings.append(f"Forvo: {term}")
             continue
 
         if accent:
-            accent_string = f"{language}_{accent}"
+            accent_string = f"{language[0]}_{accent}"
             match = re.search(
-                rf'<div id=\"language-container-{language}\"[^>]*?>.*?<ul class=\"show-all-pronunciations\"[^>]*?.*?<header class=\"accent {accent_string}\"[^>]*?(.*?)</ul>',
+                rf'<div id=\"language-container-{language[0]}\"[^>]*?>.*?<ul class=\"show-all-pronunciations\"[^>]*?.*?<header class=\"accent {accent_string}\"[^>]*?(.*?)</ul>',
                 html, re.DOTALL | re.MULTILINE)
         else:
             match = re.search(
-                rf'<div id=\"language-container-{language}\"[^>]*?>.*?<ul class=\"show-all-pronunciations\"[^>]*?(.*?)</ul>',
+                rf'<div id=\"language-container-{language[0]}\"[^>]*?>.*?<ul class=\"show-all-pronunciations\"[^>]*?(.*?)</ul>',
                 html, re.DOTALL | re.MULTILINE)
 
         if match:
             pronunciations = re.findall(
                 r'onclick=\"Play\([^,]+,\'([^\']+).*?Pronunciation by\s*?(?:<span class=\"ofLink\"[^>]*?>([^<]+?)</span>|(\b\w+\b))',
                 match.groups()[0], re.DOTALL | re.MULTILINE)
+        elif not batch and not disable_Lingua_Libre:
+            return [[], [], []]
         elif not batch:
             showInfo(f"No pronunciation found for {term}.")
             continue
@@ -308,7 +620,7 @@ def get_forvo_results(terms):
                     continue
                 else:
                     error_number = error_number + 1
-                    error_strings.append(f"{term}")
+                    error_strings.append(f"Forvo: {term}")
                     continue
             if player_result.headers['Content-Disposition']:
                 mp3 = player_result.headers['Content-Disposition'] \
@@ -317,29 +629,43 @@ def get_forvo_results(terms):
                     audio = scraper.get(mp3)
                 except:
                     error_number = error_number + 1
-                    error_strings.append(f"{term}")
+                    error_strings.append(f"Forvo: {term}")
                     continue
 
                 speakers.append(results[k][0])
                 # Set the filename and save the audio to the disk
-                filename = set_audio_string(results[k][0], term)
+                filename = set_forvo_audio_string(results[k][0], term)
                 term_filenames.append(filename)
-                audio_files.append(save_audio(audio, filename))
-                save_audio(audio, filename)
+                audio_file_path = save_audio(audio, filename)
+                audio_file_paths.append(audio_file_path)
+
         if filename:
             # If this is a batch operation, there is only one possible filename to append
             # Otherwise, ask the user which one they want to save
             if batch:
                 filenames.append(filename)
             else:
-                sound_dialog = SoundDialog(mw, audio_files, speakers)
-                res = sound_dialog.wait_for_result()
-                if res == QDialog.Accepted:
-                    index = sound_dialog.selected
-                    filenames.append(term_filenames[index])
-                    mw.col.media.addFile(audio_files[index])
+                if disable_Lingua_Libre:
+                    sound_dialog = SoundDialog(mw, audio_file_paths, speakers)
+                    res = sound_dialog.wait_for_result()
+                    if res == QDialog.Accepted:
+                        index = sound_dialog.selected
+                        filenames.append(term_filenames[index])
+                        mw.col.media.addFile(audio_file_paths[index])
+                else:
+                    return [audio_file_paths, speakers, term_filenames]
 
-    return create_audio_field_string(filenames)
+    return filenames
+
+
+# sets the audio string used in the file name and audio field
+def set_forvo_audio_string(speaker, audio):
+    if accent:
+        audio_string = slugify(f"Forvo_{language[0]}_{accent}_{speaker}_{audio}") + ".mp3"
+    else:
+        audio_string = slugify(f"Forvo_{language[0]}_{speaker}_{audio}") + ".mp3"
+
+    return audio_string
 
 
 # Used to return all the notes missing audio
@@ -377,6 +703,15 @@ def check_fields(config_fields):
 # Runs a batch operation to download audio from Forvo
 def batch_get_audio(col: Collection):
     global error_strings, error_number, text_field, audio_field
+
+    if not disable_Lingua_Libre:
+        # Load the Lingua Libre database
+        mw.taskman.run_on_main(
+            lambda: mw.progress.update(
+                label="Loading Lingua Libre Database"
+            ))
+        load_ll_database()
+
     success = 0
     error_strings = []
     error_number = 0
@@ -417,7 +752,14 @@ def batch_get_audio(col: Collection):
                 ))
 
             # Download the audio and update the audio field
-            result = get_forvo_results(term)
+            if disable_Lingua_Libre:
+                audio_files = get_forvo_results(term)
+            else:
+                audio_files = get_ll_results(term)
+
+            # Create the string for the audio field
+            result = create_audio_field_string(audio_files)
+
             # Only update the card if we actually found audio
             if result:
                 if result.count(separator) < len(term) - 1 and not note.hasTag(tag_missing):
@@ -436,6 +778,9 @@ def batch_get_audio(col: Collection):
             if mw.progress.want_cancel():
                 return [success, fail]
 
+    with open(ll_locations_json, 'w') as outfile:
+        json.dump(locations, outfile, indent=4)
+
     return [success, fail]
 
 
@@ -443,7 +788,7 @@ def on_success(count: tuple) -> None:
     showInfo(f"{count[0]} Meanings Added.\n {count[1]} not found.\n {error_number} errors")
     if error_number != 0:
         label = "\n".join(error_strings)
-        showInfo(f"Errors occurred with the following terms: {label}\n"
+        showInfo(f"Errors occurred with the following terms:\n{label}\n"
                  f" Please run again. If this continues to occur, please check the terms on Forvo.")
 
 
@@ -461,17 +806,20 @@ def batch_download() -> None:
     )
 
     # Show a progress window
-    op.with_progress(label="Fetching Audio").run_in_background()
+    op.with_progress(label="Preparing to Download Audio.").run_in_background()
 
 
 def button_pressed(self):
     global batch, note_type
+
     batch = False
     note_type = str()
 
     note = self.note
     note_type = note.note_type()['name']
     get_config_note()
+
+    load_ll_database()
 
     for k, v in field_names.items():
         text_field = k
@@ -480,7 +828,13 @@ def button_pressed(self):
 
         term = process_text(note[text_field])
         # Download the audio and update the audio field
-        result = get_forvo_results(term)
+        if disable_Lingua_Libre:
+            audio_files = get_forvo_results(term)
+        else:
+            audio_files = get_ll_results(term)
+
+        # Create the string for the audio field
+        result = create_audio_field_string(audio_files)
 
         # Only update the card if we actually found audio
         if result:
