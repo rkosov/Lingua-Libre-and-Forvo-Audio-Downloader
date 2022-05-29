@@ -604,9 +604,10 @@ def get_forvo_results(terms):
         results = sort_results(results, exclude_speakers, prefer_speakers)
         speakers = list()
 
-        if not results:
-            # raise ValueError(f"No results for {term[i]}")
+        if not results and batch:
             continue
+        elif not results and not batch:
+            return [[], [], []]
 
         # Either download the first result if this is batch operation
         # Or download all the available audio if this is run on an individual card
@@ -833,6 +834,7 @@ def button_pressed(self):
         check_fields([k, v])
 
         term = process_text(note[text_field])
+
         # Download the audio and update the audio field
         if disable_Lingua_Libre:
             audio_files = get_forvo_results(term)
