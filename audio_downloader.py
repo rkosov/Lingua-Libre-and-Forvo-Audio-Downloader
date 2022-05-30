@@ -45,7 +45,7 @@ error_number = 0
 error_strings = []
 batch = bool
 recheck_tag = str()
-restrict_to_country = list()
+restrict_to_places = list()
 prefer_locations = frozenset()
 
 
@@ -127,7 +127,7 @@ def process_config(config):
     global note_type, field_names, language
     global separator, prefixes, suffixes, find_and_replace
     global accent, prefer_speakers, exclude_speakers, tag_missing, deck_name, add_tag, recheck_tag
-    global restrict_to_country, prefer_locations, max_date, disable_forvo, disable_Lingua_Libre
+    global restrict_to_places, prefer_locations, max_date, disable_forvo, disable_Lingua_Libre
     config_fields = []
 
     # reset all config variables
@@ -176,8 +176,8 @@ def process_config(config):
         add_tag = config['add_tag']
     if "recheck_tag" in keys:
         recheck_tag = config['recheck_tag']
-    if "restrict_to_country" in keys:
-        restrict_to_country = config['restrict_to_country']
+    if "restrict_to_places" in keys:
+        restrict_to_places = config['restrict_to_places']
     if "prefer_locations" in keys:
         prefer_locations = config['prefer_locations']
     if "max_date" in keys:
@@ -322,14 +322,14 @@ def get_ll_results(terms):
                 place = results[speaker]['residence']
                 if place not in locations:
                     get_location_labels(place)
-                country = locations[place]['country']
+                city = locations[place]['city']
 
                 # Filters the results based on the user's criteria
-                if (country in restrict_to_country or restrict_to_country == []) \
+                if (city in restrict_to_places or restrict_to_places == []) \
                         and speaker not in exclude_speakers\
                         and language[1] == results[speaker]['language']:
                     entry[speaker] = {"term": term, "speaker": speaker, "filename": results[speaker]['file'],
-                                      "city": locations[place]['city'], "country": country,
+                                      "city": city, "country": locations[place]['country'],
                                       "language": results[speaker]['language']}
                     available_speakers.append(speaker)
             '''
@@ -355,7 +355,7 @@ def get_ll_results(terms):
 
                     if intersection:
                         available_pronunciations = [key for key, val in entry.items() if val['city'] == intersection[0]]
-                        speaker = random.choice(available_pronunciations )
+                        speaker = random.choice(available_pronunciations)
                     # Otherwise, select a random pronunciation
                     else:
                         speaker = random.choice(available_speakers)
@@ -386,12 +386,6 @@ def get_ll_results(terms):
             speakers = []
             total = len(speaker)
             for speaker in available_speakers:
-                '''mw.taskman.run_on_main(
-                    lambda: mw.progress.update(
-                        label=f"Fetching pronunciation by {speaker}",
-                        value=i,
-                        max=total,
-                    ))]'''
                 selection = entry[speaker]
                 term_filename = set_ll_audio_string(selection)
                 term_filenames.append(term_filename)
@@ -445,10 +439,7 @@ def get_location_labels(qid):
     try:
         city = data['results']['bindings'][0]['city']['value']
         country = data['results']['bindings'][0]['countryLabel']['value']
-        if city == country:
-            locations[qid] = {"city": "", "country": country}
-        else:
-            locations[qid] = {"city": city, "country": country}
+        locations[qid] = {"city": city, "country": country}
     except IndexError:
         locations[qid] = {"city": "", "country": ""}
 
@@ -460,10 +451,10 @@ def set_ll_audio_string(entry):
     country = entry['country']
 
     #Creates the code for the place
-    if city and country:
+    if city == country:
+        place = f"{city}_"
+    elif city:
         place = f"{city}, {country}_"
-    elif country:
-        place = f"{country}_"
     else:
         place = ""
 
@@ -711,12 +702,10 @@ def check_fields(config_fields):
 def batch_get_audio(col: Collection):
     global error_strings, error_number, text_field, audio_field
 
+    count = 0
+    total = 25
     if not disable_Lingua_Libre:
         # Load the Lingua Libre database
-        mw.taskman.run_on_main(
-            lambda: mw.progress.update(
-                label="Loading Lingua Libre Database"
-            ))
         load_ll_database()
 
     success = 0
@@ -759,10 +748,12 @@ def batch_get_audio(col: Collection):
                 ))
 
             # Download the audio and update the audio field
-            if disable_Lingua_Libre:
+            if not disable_Lingua_Libre:
+                audio_files = get_ll_results(term)
+            elif not disable_forvo:
                 audio_files = get_forvo_results(term)
             else:
-                audio_files = get_ll_results(term)
+                break
 
             # Create the string for the audio field
             result = create_audio_field_string(audio_files)
@@ -813,7 +804,7 @@ def batch_download() -> None:
     )
 
     # Show a progress window
-    op.with_progress(label="Preparing to Download Audio.").run_in_background()
+    op.with_progress(label="Downloading Lingua Libre database.\n Please wait. This will take several minutes.").run_in_background()
 
 
 def button_pressed(self):
@@ -836,10 +827,13 @@ def button_pressed(self):
         term = process_text(note[text_field])
 
         # Download the audio and update the audio field
-        if disable_Lingua_Libre:
+        if not disable_Lingua_Libre:
+            audio_files = get_ll_results(term)
+        elif not disable_forvo:
             audio_files = get_forvo_results(term)
         else:
-            audio_files = get_ll_results(term)
+            break
+
 
         # Create the string for the audio field
         result = create_audio_field_string(audio_files)
