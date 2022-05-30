@@ -1,0 +1,46 @@
+"Configuration Name": {
+        "add_tag": "add this tag to every card to which a sound file is added",
+        "exclude_speakers": [
+            "person_1",
+            "person_2",
+        ],
+        "deck": "the name of the deck (optional)",
+        "disable_Lingua_Libre": "If set to True, this will disable retrieving results from Lingua Libre",
+        "disable_Forvo":  "If set to True, this will disable retrieving results from Forvo"
+        "fields": {
+            "text_field": "audio_field"
+        },
+        "find_and_replace": {
+            "find": "replace with"
+        },
+        "language": ["the language_code used on forvo, e.g. fr, de, ja", "the language code used on Lingua Libre, e.g. fra, deu, jap"],
+        "note": "The Type of Note",
+        "max_date": "Redownload the Lingua Libre database if the existing file is older than this number. The default is 1"
+        "prefer_locations": [
+            "Prefer speakers from this place",
+            "and this"
+        ],
+        "prefer_speakers": [
+            "person_1",
+            "person_2",
+        ],
+        "prefixes": [
+            "remove this from the start of the text_field",
+            "and_this"
+        ],
+        "recheck_tag": "any card with this tag will be rechecked",
+        "remove": [
+            "remove this from the text field",
+            "and this"
+        ],
+        "restrict_to_places": [
+            "Only get files of speakers from this place",
+            "and this"
+        ],
+        "separator": "used to divide the text field into multiple searches",
+        "suffixes": [
+        "remove this from the start of the text_field",
+            "and_this"
+        ],
+        "tag_missing": "When using the separator option, this will tag notes that don't have a pronunciation for each part"
+    },
