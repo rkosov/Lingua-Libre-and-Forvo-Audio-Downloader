@@ -59,7 +59,7 @@ ll_database_json = os.path.join(os.path.dirname(__file__), "LinguaLibre.json")
 locations = dict()
 ll_locations_json = os.path.join(os.path.dirname(__file__), "Locations.json")
 disable_Lingua_Libre = False
-disable_forvo = False
+disable_Forvo = False
 
 # Query for Lingua Libre
 ENDPOINT = "https://lingualibre.org/bigdata/namespace/wdq/sparql"
@@ -67,15 +67,13 @@ API = "https://lingualibre.org/api.php"
 BASEQUERY = """
 SELECT DISTINCT
     ?record ?file ?transcription ?recorded
-    ?languageIso ?languageQid ?languageWMCode
-    ?residence ?learningPlace ?languageLevel
+    ?languageIso ?residence ?languageLevel
     ?speaker ?linkeduser
 WHERE {
   ?record prop:P2 entity:Q2 .
   ?record prop:P3 ?file .
   ?record prop:P4 ?language .
   ?record prop:P5 ?speaker .
-  ?record prop:P6 ?recorded .
   ?record prop:P7 ?transcription .
   ?language prop:P13 ?languageIso.
   ?speakerLanguagesStatement llq:P16 ?languageLevel .
@@ -83,12 +81,10 @@ WHERE {
   ?speaker prop:P14 ?residence .
   ?speaker llp:P4 ?speakerLanguagesStatement .
   ?speakerLanguagesStatement llv:P4 ?speakerLanguages .
-  OPTIONAL { ?speakerLanguagesStatement llq:P16 ?languageLevel . }
   FILTER( ?speakerLanguages = ?language) .
   SERVICE wikibase:label {
     bd:serviceParam wikibase:language "en" .
   }
-  #filters
 }"""
 
 
@@ -127,7 +123,7 @@ def process_config(config):
     global note_type, field_names, language
     global separator, prefixes, suffixes, find_and_replace
     global accent, prefer_speakers, exclude_speakers, tag_missing, deck_name, add_tag, recheck_tag
-    global restrict_to_places, prefer_locations, max_date, disable_forvo, disable_Lingua_Libre
+    global restrict_to_places, prefer_locations, max_date, disable_Forvo, disable_Lingua_Libre
     config_fields = []
 
     # reset all config variables
@@ -182,8 +178,8 @@ def process_config(config):
         prefer_locations = config['prefer_locations']
     if "max_date" in keys:
         max_date = config['max_date']
-    if "disable_forvo" in keys:
-        disable_forvo = config['disable_forvo']
+    if "disable_Forvo" in keys:
+        disable_Forvo = config['disable_Forvo']
     if "disable_Lingua_Libre" in keys:
         disable_Lingua_Libre = config['disable_Lingua_Libre']
 
@@ -338,8 +334,7 @@ def get_ll_results(terms):
                 a) First check to see if there are pronunciations by the user's preferred speakers
                 b) Then check if there are pronunciations in the user's preferred places
                 c) Otherwise grab a random pronunciation
-            2) If its to a batch operation, then we'll need to ask the user to select one.
-            3) If Lingua Libre does not have acceptable pronunciations, check Forvo and continue to the next term.
+            2) If Lingua Libre does not have acceptable pronunciations, check Forvo and continue to the next term.
             '''
             if entry and batch:
 
@@ -371,11 +366,11 @@ def get_ll_results(terms):
                 save_audio(audio, filename)
                 filenames.append(filename)
 
-            elif not disable_forvo and batch:
+            elif not disable_Forvo and batch:
                 forvo = get_forvo_results([term])
                 filenames.extend(forvo)
 
-        elif not disable_forvo and batch:
+        elif not disable_Forvo and batch:
             forvo = get_forvo_results([term])
             filenames.extend(forvo)
 
@@ -384,7 +379,6 @@ def get_ll_results(terms):
             term_filename = ""
             audio_file_paths = []
             speakers = []
-            total = len(speaker)
             for speaker in available_speakers:
                 selection = entry[speaker]
                 term_filename = set_ll_audio_string(selection)
@@ -400,7 +394,7 @@ def get_ll_results(terms):
 
             speakers = [f"Lingua Libre: {x}" for x in available_speakers]
 
-            if not disable_forvo:
+            if not disable_Forvo:
                 forvo_results = get_forvo_results([term])
                 audio_file_paths.extend(forvo_results[0])
                 speakers.extend([f"Forvo: {x}" for x in forvo_results[1]])
@@ -750,7 +744,7 @@ def batch_get_audio(col: Collection):
             # Download the audio and update the audio field
             if not disable_Lingua_Libre:
                 audio_files = get_ll_results(term)
-            elif not disable_forvo:
+            elif not disable_Forvo:
                 audio_files = get_forvo_results(term)
             else:
                 break
@@ -829,7 +823,7 @@ def button_pressed(self):
         # Download the audio and update the audio field
         if not disable_Lingua_Libre:
             audio_files = get_ll_results(term)
-        elif not disable_forvo:
+        elif not disable_Forvo:
             audio_files = get_forvo_results(term)
         else:
             break
