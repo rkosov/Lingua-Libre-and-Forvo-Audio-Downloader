@@ -76,10 +76,10 @@ WHERE {
   ?record prop:P5 ?speaker .
   ?record prop:P7 ?transcription .
   ?language prop:P13 ?languageIso.
-  ?speakerLanguagesStatement llq:P16 ?languageLevel .
   ?speaker prop:P11 ?linkeduser .
   ?speaker prop:P14 ?residence .
   ?speaker llp:P4 ?speakerLanguagesStatement .
+  ?speakerLanguagesStatement llq:P16 ?languageLevel .
   ?speakerLanguagesStatement llv:P4 ?speakerLanguages .
   FILTER( ?speakerLanguages = ?language) .
   SERVICE wikibase:label {
@@ -273,19 +273,12 @@ def load_ll_database():
         today = datetime.datetime.today()
         modified_date = datetime.datetime.fromtimestamp(os.path.getmtime(ll_database_json))
         duration = today - modified_date
-        if bool(ll_database):
-            return
-        elif duration.days < max_date:
+        if duration.days < max_date:
             try:
                 with open(ll_database_json, 'r') as f:
                     ll_database = json.load(f)
             except FileNotFoundError:
                 fetch_ll_database()
-            try:
-                with open(ll_locations_json, 'r') as f:
-                    locations = json.load(f)
-            except FileNotFoundError:
-                return
         else:
             fetch_ll_database()
             try:
