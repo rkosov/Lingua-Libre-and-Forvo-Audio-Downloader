@@ -277,14 +277,14 @@ def load_ll_database():
             try:
                 with open(ll_database_json, 'r') as f:
                     ll_database = json.load(f)
-            except FileNotFoundError:
+            except (FileNotFoundError, ValueError) as exception:
                 fetch_ll_database()
         else:
             fetch_ll_database()
             try:
                 with open(ll_locations_json, 'r') as f:
                     locations = json.load(f)
-            except FileNotFoundError:
+            except (FileNotFoundError, ValueError) as exception:
                 return
     except FileNotFoundError:
         fetch_ll_database()
@@ -659,8 +659,7 @@ def find_missing_audio():
     if not deck_name:
         search = f'"note:{note_type}" {audio_field}: OR "note:{note_type}" tag:{recheck_tag}'
     else:
-        search = f'"note:{note_type}" "deck:{deck_name}" {audio_field}: ' \
-                 f'OR note:{note_type}" "deck:{deck_name}" tag:{recheck_tag}'
+        search = f'"note:{note_type}" "deck:{deck_name}" {audio_field}: OR "note:{note_type}" "deck:{deck_name}" tag:{recheck_tag}'
     # Find all notes with a given note type with a blank audio field
     notes = mw.col.findNotes(search)
 
