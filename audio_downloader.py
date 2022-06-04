@@ -280,13 +280,14 @@ def load_ll_database():
                 fetch_ll_database()
         else:
             fetch_ll_database()
-            try:
-                with open(ll_locations_json, 'r') as f:
-                    locations = json.load(f)
-            except (FileNotFoundError, ValueError) as exception:
-                return
     except FileNotFoundError:
         fetch_ll_database()
+
+    try:
+        with open(ll_locations_json, 'r') as f:
+            locations = json.load(f)
+    except (FileNotFoundError, ValueError) as exception:
+        return
 
 
 def get_ll_results(terms):
