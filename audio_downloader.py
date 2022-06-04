@@ -66,7 +66,7 @@ ENDPOINT = "https://lingualibre.org/bigdata/namespace/wdq/sparql"
 API = "https://lingualibre.org/api.php"
 BASEQUERY = """
 SELECT DISTINCT
-    ?record ?file ?transcription ?recorded
+    ?record ?file ?transcription
     ?languageIso ?residence ?languageLevel
     ?speaker ?linkeduser
 WHERE {
@@ -259,7 +259,6 @@ def fetch_ll_database():
             ll_database[current_term] = {}
         ll_database[current_term][speaker] = {"file": sparql.format_value(record, "file"),
                                               "language": sparql.format_value(record, "languageIso"),
-                                              "recorded": sparql.format_value(record, "recorded"),
                                               "residence": sparql.format_value(record, "residence")}
 
     with open(ll_database_json, 'w') as outfile:
