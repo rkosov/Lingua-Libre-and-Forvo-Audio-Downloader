@@ -274,7 +274,7 @@ def load_ll_database():
         duration = today - modified_date
         if duration.days < max_date:
             try:
-                with open(ll_database_json, 'r') as f:
+                with open(ll_database_json, 'r', encoding='utf8') as f:
                     ll_database = json.load(f)
             except (FileNotFoundError, ValueError) as exception:
                 fetch_ll_database()
@@ -284,7 +284,7 @@ def load_ll_database():
         fetch_ll_database()
 
     try:
-        with open(ll_locations_json, 'r') as f:
+        with open(ll_locations_json, 'r', encoding='utf8') as f:
             locations = json.load(f)
     except (FileNotFoundError, ValueError) as exception:
         return
