@@ -247,20 +247,30 @@ def slugify(value):
 def fetch_ll_database():
     global ll_database
 
+    # Run the sparql query to fetch the results
     raw_records = sparql.request(ENDPOINT, BASEQUERY.replace("#filters", ""))
+
+    # Loop through the records returned by the sparql query and move them into a dictionary.
     for record in raw_records:
+
+        # Write the transcription and the speaker because they get used several times.
         current_term = sparql.format_value(record, "transcription")
         speaker = sparql.format_value(record, "linkeduser")
-        #print(current_term)
+
+        # If the speaker is not a native speaker, move to the next record.
         if sparql.format_value(record, "languageLevel") != "Q15":
             continue
 
+        # If the term is not in the dictionary, then add it to the dictionary.
         if current_term not in ll_database:
             ll_database[current_term] = {}
+
+        # Store the record for the speaker as a nested dictionary under the current_term key
         ll_database[current_term][speaker] = {"file": sparql.format_value(record, "file"),
                                               "language": sparql.format_value(record, "languageIso"),
                                               "residence": sparql.format_value(record, "residence")}
 
+    # Save the dictionary as utf-8 json file to speed up the next operation.
     with open(ll_database_json, 'w', encoding='utf8') as outfile:
         json.dump(ll_database, outfile, indent=4, ensure_ascii=False)
 
@@ -268,6 +278,11 @@ def fetch_ll_database():
 def load_ll_database():
     global ll_database, locations
 
+    '''
+    1) First get the date from the existing database. If to local database exist, fetch a new one
+    2) If the existing database is younger than the max_date, load it. If the loading fails, fetch a new one.
+    3) If the existing database is corrupt, fetch a new one.
+    '''
     try:
         today = datetime.datetime.today()
         modified_date = datetime.datetime.fromtimestamp(os.path.getmtime(ll_database_json))
@@ -283,6 +298,7 @@ def load_ll_database():
     except FileNotFoundError:
         fetch_ll_database()
 
+    # Load the existing locations json file to speed up operations
     try:
         with open(ll_locations_json, 'r', encoding='utf8') as f:
             locations = json.load(f)
@@ -291,16 +307,25 @@ def load_ll_database():
 
 
 def get_ll_results(terms):
+    # Store the number of errors and the terms that produced the errors as global variable
     global error_number, error_strings
+
+    # The filenames will contain a list of audio filenames to add to the note later.
     filenames = []
 
+    # Since the terms variable is a list, loop through it and check each term individually
     for index, term in enumerate(terms):
+
+        # Reset all the variable to avoid any problems
         filename = ""
         speaker = ""
         selection = ""
         entry = dict()
-        results = ll_database.get(term)
         available_speakers = []
+
+        # Fetch the key in the Lingua Lingua dictionary.
+        results = ll_database.get(term)
+
         # Only continue if there are pronunciations for the given term
         if results:
 
@@ -329,10 +354,13 @@ def get_ll_results(terms):
                 c) Otherwise grab a random pronunciation
             2) If Lingua Libre does not have acceptable pronunciations, check Forvo and continue to the next term.
             '''
+            # Only execute the following code if acceptable entries exists and this is a batch operation
             if entry and batch:
 
                 # Checking if the results contain a pronunciation by a preferred speaker
                 intersection = [x for x in prefer_speakers if x in available_speakers]
+
+                # Since the prefer_speakers is a frozen set, the first entry will contain the user's top choice.
                 if intersection:
                     speaker = intersection[0]
                 # If not, check for a user's preferred places
@@ -340,7 +368,10 @@ def get_ll_results(terms):
                     places = [val['city'] for key, val in entry.items() if 'city' in val]
 
                     intersection = [x for x in prefer_locations if x in places]
-
+                    '''
+                    a) Since the prefer_speakers is a frozen set, the first entry will contain the user's top choice.
+                    b) Since multiple pronunciations can exist, grab a random one.
+                    '''
                     if intersection:
                         available_pronunciations = [key for key, val in entry.items() if val['city'] == intersection[0]]
                         speaker = random.choice(available_pronunciations)
@@ -348,30 +379,51 @@ def get_ll_results(terms):
                     else:
                         speaker = random.choice(available_speakers)
 
+                # Now that the speaker is known, pull their information.
                 selection = entry[speaker]
+
+                # Use the speaker information to set the filename
                 filename = set_ll_audio_string(selection)
+
+                # Download the audio from commons using the filename on commons.
                 audio = download_ll_audio(selection["filename"])
+
+                # If the audio did not download, record the error and continue to the next term.
                 if not audio:
                     error_number = error_number + 1
                     error_strings.append(f"LL: {term}")
                     continue
 
+                # Save the audio to the anki media file
                 save_audio(audio, filename)
+
+                # Save the filename in the list of filenames that the function will return
                 filenames.append(filename)
 
+            # If no audio on Lingua Libre meets the user's criteria and this is a batch operation, check Forvo
             elif not disable_Forvo and batch:
                 forvo = get_forvo_results([term])
                 filenames.extend(forvo)
 
+        # If Lingua Libre does not contain audio and this is a batch operation, check Forvo
         elif not disable_Forvo and batch:
             forvo = get_forvo_results([term])
             filenames.extend(forvo)
 
+        # If the user presses the button to fetch an individual audio, a different logic applies.
         if not batch:
+            # reset the variables
             term_filenames = []
             term_filename = ""
             audio_file_paths = []
             speakers = []
+
+            '''
+            To enable the playback of the audio, several things need to be done:
+            1) Set the filename for each speaker and save it in a list
+            2) Download the audio for each speaker and save it in a list
+            3) Save the audio paths in a list as well
+            4) Save the speaker name in a list'''
             for speaker in available_speakers:
                 selection = entry[speaker]
                 term_filename = set_ll_audio_string(selection)
@@ -387,22 +439,34 @@ def get_ll_results(terms):
 
             speakers = [f"Lingua Libre: {x}" for x in available_speakers]
 
+            # If the user also wants to check Forvo,
             if not disable_Forvo:
                 forvo_results = get_forvo_results([term])
                 audio_file_paths.extend(forvo_results[0])
                 speakers.extend([f"Forvo: {x}" for x in forvo_results[1]])
                 term_filenames.extend(forvo_results[2])
 
+            # Only show the speakers if there are available pronunciations
             if speakers:
+                # Send the paths to the audio and the speaker names to the QT dialog
                 sound_dialog = SoundDialog(mw, audio_file_paths, speakers)
+                # Wait for a selection.
                 res = sound_dialog.wait_for_result()
+
+                """
+                If the user made a selection, use the row number
+                to move the appropriate audio to the anki media folder and 
+                add the filename to the list  of filenames to add the audio field
+                 """
                 if res == QDialog.Accepted:
                     index = sound_dialog.selected
                     filenames.append(term_filenames[index])
                     mw.col.media.addFile(audio_file_paths[index])
+            # If no audio is found, then let the user know.
             else:
                 showInfo(f"No pronunciation found for {term}.")
 
+    # Return the list of filenames to add to audio field.
     return filenames
 
 
