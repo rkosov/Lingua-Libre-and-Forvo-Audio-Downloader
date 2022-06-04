@@ -838,7 +838,7 @@ def add_audio_button(buttons, editor):
     # Add a button to the edit bar to enable manual download of a sound
     buttons.append(
         editor.addButton(icon=os.path.join(os.path.dirname(__file__), "icon/volume-up-fill.svg"),
-                         cmd="add_forvo",
+                         cmd="Download Audio",
                          func=button_pressed),
     )
     return buttons
