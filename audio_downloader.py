@@ -261,8 +261,8 @@ def fetch_ll_database():
                                               "language": sparql.format_value(record, "languageIso"),
                                               "residence": sparql.format_value(record, "residence")}
 
-    with open(ll_database_json, 'w') as outfile:
-        json.dump(ll_database, outfile, indent=4)
+    with open(ll_database_json, 'w', encoding='utf8') as outfile:
+        json.dump(ll_database, outfile, indent=4, ensure_ascii=False)
 
 
 def load_ll_database():
@@ -761,8 +761,8 @@ def batch_get_audio(col: Collection):
             if mw.progress.want_cancel():
                 return [success, fail]
 
-    with open(ll_locations_json, 'w') as outfile:
-        json.dump(locations, outfile, indent=4)
+    with open(ll_locations_json, 'w', encoding='utf8') as outfile:
+        json.dump(locations, outfile, indent=4, ensure_ascii=False)
 
     return [success, fail]
 
