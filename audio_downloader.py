@@ -810,12 +810,12 @@ def batch_get_audio(col: Collection):
 
             # Only update the card if we actually found audio
             if result:
-                if result.count(separator) < len(term) - 1 and not note.hasTag(tag_missing):
-                    note.addTag(tag_missing)
                 if add_tag:
                     note.addTag(add_tag)
                 if recheck_tag:
                     note.removeTag(recheck_tag)
+                if len(audio_files) != term_length:
+                    note.addTag(tag_missing)
                 success = success + 1
                 note[audio_field] = result
                 note.flush()
@@ -890,10 +890,13 @@ def button_pressed(self):
 
         # Only update the card if we actually found audio
         if result:
-            if result.count(separator) < len(term) - 1 and not note.hasTag(tag_missing):
-                note.addTag(tag_missing)
             if add_tag:
                 note.addTag(add_tag)
+            if recheck_tag:
+                note.removeTag(recheck_tag)
+            if len(audio_files) != len(term):
+                note.addTag(tag_missing)
+
             note[audio_field] = result
             self.loadNoteKeepingFocus()
     return
