@@ -336,14 +336,16 @@ def get_ll_results(terms):
                 place = results[speaker]['residence']
                 if place not in locations:
                     get_location_labels(place)
+
                 city = locations[place]['city']
+                country = locations[place]['country']
 
                 # Filters the results based on the user's criteria
-                if (city in restrict_to_places or restrict_to_places == []) \
+                if ((city or country) in restrict_to_places or restrict_to_places == []) \
                         and speaker not in exclude_speakers\
                         and language[1] == results[speaker]['language']:
                     entry[speaker] = {"term": term, "speaker": speaker, "filename": results[speaker]['file'],
-                                      "city": city, "country": locations[place]['country'],
+                                      "city": city, "country": country,
                                       "language": results[speaker]['language']}
                     available_speakers.append(speaker)
             '''
