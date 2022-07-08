@@ -640,9 +640,8 @@ def get_forvo_results(terms):
         for a, b, c in pronunciations:
             user = b or c
             if user not in results:
-                results[user] = [a]
+                results[user] = a
                 continue
-            results[user].append(a)
 
         # Now remove the unwanted users and reorder the results based on preferred users
         results = sort_results(results, exclude_speakers, prefer_speakers)
